@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bmp180"
+version = "1.0"
+description = "A package to handle the i2c communication between a Raspberry Pi and a BMP180"
+readme = "README.md"
+authors = [
+    { name = "Henry Martin/Aerospace Jam" },
+    { name = "Tijndagamer" },
+]
+license = { text = "MIT" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 2.7",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["bmp180", "raspberrypi", "raspberry", "pi"]
+dependencies = [
+    "smbus2",
+]
+requires-python = ">=3.10"
+
+[project.urls]
+Homepage = "https://github.com/AerospaceJam/bmp180"
+
+[tool.mypy]
+strict = true
+modules = ["bmp180"]

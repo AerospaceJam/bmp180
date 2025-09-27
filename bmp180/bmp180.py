@@ -1,225 +1,209 @@
-"""
-This program handles the communication over I2C between a Raspberry Pi and a
-BMP180 Temperature/Pressure sensor.
-Made by: MrTijn/Tijndagamer
-Copyright 2015-2017
-Released under the MIT license.
-"""
-
-import smbus
+from smbus2 import SMBus
 import math
 from time import sleep
+from typing import Final, List
 
-class bmp180:
-    # Global variables
-    address = None
-    bus = smbus.SMBus(1)
-    mode = 1 # TODO: Add a way to change the mode
 
-    # BMP180 registers
-    CONTROL_REG = 0xF4
-    DATA_REG = 0xF6
+class BMP180:
+    """
+    A class to interact with the BMP180 temperature and pressure sensor.
+    """
 
-    # Calibration data registers
-    CAL_AC1_REG = 0xAA
-    CAL_AC2_REG = 0xAC
-    CAL_AC3_REG = 0xAE
-    CAL_AC4_REG = 0xB0
-    CAL_AC5_REG = 0xB2
-    CAL_AC6_REG = 0xB4
-    CAL_B1_REG = 0xB6
-    CAL_B2_REG = 0xB8
-    CAL_MB_REG = 0xBA
-    CAL_MC_REG = 0xBC
-    CAL_MD_REG = 0xBE
+    # BMP180 registers (internal constants)
+    _CONTROL_REG: Final[int] = 0xF4
+    _DATA_REG: Final[int] = 0xF6
+    _CAL_AC1_REG: Final[int] = 0xAA
+    _CAL_AC2_REG: Final[int] = 0xAC
+    _CAL_AC3_REG: Final[int] = 0xAE
+    _CAL_AC4_REG: Final[int] = 0xB0
+    _CAL_AC5_REG: Final[int] = 0xB2
+    _CAL_AC6_REG: Final[int] = 0xB4
+    _CAL_B1_REG: Final[int] = 0xB6
+    _CAL_B2_REG: Final[int] = 0xB8
+    _CAL_MB_REG: Final[int] = 0xBA
+    _CAL_MC_REG: Final[int] = 0xBC
+    _CAL_MD_REG: Final[int] = 0xBE
+
+    # Instance attributes with type hints
+    address: int
+    bus: SMBus
+    mode: int
 
     # Calibration data variables
-    calAC1 = 0
-    calAC2 = 0
-    calAC3 = 0
-    calAC4 = 0
-    calAC5 = 0
-    calAC6 = 0
-    calB1 = 0
-    calB2 = 0
-    calMB = 0
-    calMC = 0
-    calMD = 0
+    _cal_ac1: int = 0
+    _cal_ac2: int = 0
+    _cal_ac3: int = 0
+    _cal_ac4: int = 0
+    _cal_ac5: int = 0
+    _cal_ac6: int = 0
+    _cal_b1: int = 0
+    _cal_b2: int = 0
+    _cal_mb: int = 0
+    _cal_mc: int = 0
+    _cal_md: int = 0
 
+    def __init__(self, address: int = 0x77, bus_number: int = 1, mode: int = 1) -> None:
+        """
+        Initialize the BMP180 sensor.
 
-    def __init__(self, address):
+        Args:
+            address: The I2C address of the sensor (default is 0x77).
+            bus_number: The I2C bus number (default is 1 for most Pis).
+            mode: The oversampling setting (0-3), affecting accuracy and speed.
+        """
         self.address = address
+        self.bus = SMBus(bus_number)
+        if not 0 <= mode <= 3:
+            raise ValueError("Mode must be between 0 and 3.")
+        self.mode = mode
 
         # Get the calibration data from the BMP180
-        self.read_calibration_data()
+        self._read_calibration_data()
 
-    # I2C methods
-
-    def read_signed_16_bit(self, register):
-        """Reads a signed 16-bit value.
-
-        register -- the register to read from.
-        Returns the read value.
-        """
+    def _read_signed_16_bit(self, register: int) -> int:
+        """Reads a signed 16-bit value from two adjacent registers."""
         msb = self.bus.read_byte_data(self.address, register)
         lsb = self.bus.read_byte_data(self.address, register + 1)
 
-        if msb > 127:
-            msb -= 256
+        # Combine bytes into a 16-bit value
+        value = (msb << 8) + lsb
 
-        return (msb << 8) + lsb
+        # If the most significant bit is 1, it's a negative number
+        if value > 32767:
+            value -= 65536
+        return value
 
-    def read_unsigned_16_bit(self, register):
-        """Reads an unsigned 16-bit value.
-
-        Reads the given register and the following, and combines them as an
-        unsigned 16-bit value.
-        register -- the register to read from.
-        Returns the read value.
-        """
+    def _read_unsigned_16_bit(self, register: int) -> int:
+        """Reads an unsigned 16-bit value from two adjacent registers."""
         msb = self.bus.read_byte_data(self.address, register)
         lsb = self.bus.read_byte_data(self.address, register + 1)
-
         return (msb << 8) + lsb
 
-    # BMP180 interaction methods
+    def _read_calibration_data(self) -> None:
+        """Reads and stores the factory calibration data from the sensor."""
+        self._cal_ac1 = self._read_signed_16_bit(self._CAL_AC1_REG)
+        self._cal_ac2 = self._read_signed_16_bit(self._CAL_AC2_REG)
+        self._cal_ac3 = self._read_signed_16_bit(self._CAL_AC3_REG)
+        self._cal_ac4 = self._read_unsigned_16_bit(self._CAL_AC4_REG)
+        self._cal_ac5 = self._read_unsigned_16_bit(self._CAL_AC5_REG)
+        self._cal_ac6 = self._read_unsigned_16_bit(self._CAL_AC6_REG)
+        self._cal_b1 = self._read_signed_16_bit(self._CAL_B1_REG)
+        self._cal_b2 = self._read_signed_16_bit(self._CAL_B2_REG)
+        self._cal_mb = self._read_signed_16_bit(self._CAL_MB_REG)
+        self._cal_mc = self._read_signed_16_bit(self._CAL_MC_REG)
+        self._cal_md = self._read_signed_16_bit(self._CAL_MD_REG)
 
-    def read_calibration_data(self):
-        """Reads and stores the raw calibration data."""
-        self.calAC1 = self.read_signed_16_bit(self.CAL_AC1_REG)
-        self.calAC2 = self.read_signed_16_bit(self.CAL_AC2_REG)
-        self.calAC3 = self.read_signed_16_bit(self.CAL_AC3_REG)
-        self.calAC4 = self.read_unsigned_16_bit(self.CAL_AC4_REG)
-        self.calAC5 = self.read_unsigned_16_bit(self.CAL_AC5_REG)
-        self.calAC6 = self.read_unsigned_16_bit(self.CAL_AC6_REG)
-        self.calB1 = self.read_signed_16_bit(self.CAL_B1_REG)
-        self.calB2 = self.read_signed_16_bit(self.CAL_B2_REG)
-        self.calMB = self.read_signed_16_bit(self.CAL_MB_REG)
-        self.calMC = self.read_signed_16_bit(self.CAL_MC_REG)
-        self.calMD = self.read_signed_16_bit(self.CAL_MD_REG)
+    def get_raw_temp(self) -> int:
+        """Reads and returns the uncompensated (raw) temperature data."""
+        self.bus.write_byte_data(self.address, self._CONTROL_REG, 0x2E)
+        sleep(0.005)  # Wait 4.5ms+, 5ms is safe
+        return self._read_unsigned_16_bit(self._DATA_REG)
 
-    def get_raw_temp(self):
-        """Reads and returns the raw temperature data."""
-        # Write 0x2E to CONTROL_REG to start the measurement
-        self.bus.write_byte_data(self.address, self.CONTROL_REG, 0x2E)
+    def get_raw_pressure(self) -> int:
+        """Reads and returns the uncompensated (raw) pressure data."""
+        write_val = 0x34 + (self.mode << 6)
+        self.bus.write_byte_data(self.address, self._CONTROL_REG, write_val)
 
-        # Wait 4,5 ms
-        sleep(0.0045)
+        wait_times: List[float] = [0.005, 0.008, 0.014, 0.026]
+        sleep(wait_times[self.mode])
 
-        # Read the raw data from the DATA_REG, 0xF6
-        raw_data = self.read_unsigned_16_bit(self.DATA_REG)
+        msb = self.bus.read_byte_data(self.address, self._DATA_REG)
+        lsb = self.bus.read_byte_data(self.address, self._DATA_REG + 1)
+        xlsb = self.bus.read_byte_data(self.address, self._DATA_REG + 2)
 
-        # Return the raw data
-        return raw_data
+        raw_pressure = ((msb << 16) + (lsb << 8) + xlsb) >> (8 - self.mode)
+        return raw_pressure
 
-    def get_raw_pressure(self):
-        """Reads and returns the raw pressure data."""
-        # Write appropriate data to sensor to start the measurement
-        self.bus.write_byte_data(self.address, self.CONTROL_REG, 0x34 + (self.mode << 6))
+    def _calculate_b5(self, ut: int) -> int:
+        """Calculate the B5 parameter used in both temp and pressure calculations."""
+        x1 = (ut - self._cal_ac6) * self._cal_ac5 // (2**15)
+        # Prevent division by zero
+        if x1 + self._cal_md == 0:
+            return 0
+        x2 = self._cal_mc * (2**11) // (x1 + self._cal_md)
+        return x1 + x2
 
-        # Sleep for 8 ms.
-        # TODO: Way to use the correct wait time for the current mode
-        sleep(0.008)
-
-        MSB = self.bus.read_byte_data(self.address, self.DATA_REG)
-        LSB = self.bus.read_byte_data(self.address, self.DATA_REG + 1)
-        XLSB = self.bus.read_byte_data(self.address, self.DATA_REG + 2)
-
-        raw_data = ((MSB << 16) + (LSB << 8) + XLSB) >> (8 - self.mode)
-
-        return raw_data
-
-    def get_temp(self):
+    def get_temperature(self) -> float:
         """Reads the raw temperature and calculates the actual temperature.
 
-        The calculations used to get the actual temperature are from the BMP-180
-        datasheet.
-        Returns the actual temperature in degrees Celcius.
+        Returns:
+            The actual temperature in degrees Celsius.
         """
-        UT = self.get_raw_temp()
+        ut = self.get_raw_temp()
+        b5 = self._calculate_b5(ut)
+        temp_int = (b5 + 8) // (2**4)
+        return temp_int / 10.0
 
-        X1 = 0
-        X2 = 0
-        B5 = 0
-        actual_temp = 0.0
-
-        X1 = ((UT - self.calAC6) * self.calAC5) / math.pow(2, 15)
-        X2 = (self.calMC * math.pow(2, 11)) / (X1 + self.calMD)
-        B5 = X1 + X2
-        actual_temp = ((B5 + 8) / math.pow(2, 4)) / 10
-
-        return actual_temp
-
-    def get_pressure(self):
+    def get_pressure(self) -> int:
         """Reads and calculates the actual pressure.
 
-        Returns the actual pressure in Pascal.
+        Returns:
+            The actual pressure in Pascals.
         """
-        UP = self.get_raw_pressure()
-        UT = self.get_raw_temp()
-        B3 = 0
-        B4 = 0
-        B5 = 0
-        B6 = 0
-        B7 = 0
-        X1 = 0
-        X2 = 0
-        X3 = 0
-        pressure = 0
+        up = self.get_raw_pressure()
+        ut = self.get_raw_temp()
+        b5 = self._calculate_b5(ut)
 
-        # These calculations are from the BMP180 datasheet, page 15
+        b6 = b5 - 4000
+        x1 = (self._cal_b2 * (b6 * b6 // (2**12))) // (2**11)
+        x2 = self._cal_ac2 * b6 // (2**11)
+        x3 = x1 + x2
+        b3 = (((self._cal_ac1 * 4 + x3) << self.mode) + 2) // 4
 
-        # Not sure if these calculations should be here, maybe they could be
-        # removed?
-        X1 = ((UT - self.calAC6) * self.calAC5) / math.pow(2, 15)
-        X2 = (self.calMC * math.pow(2, 11)) / (X1 + self.calMD)
-        B5 = X1 + X2
+        x1 = self._cal_ac3 * b6 // (2**13)
+        x2 = (self._cal_b1 * (b6 * b6 // (2**12))) // (2**16)
+        x3 = ((x1 + x2) + 2) // 4
+        b4 = self._cal_ac4 * (x3 + 32768) // (2**15)
+        b7 = (up - b3) * (50000 >> self.mode)
 
-        # Todo: change math.pow cals to constants
-        B6 = B5 - 4000
-        X1 = (self.calB2 * (B6 * B6 / math.pow(2, 12))) / math.pow(2, 11)
-        X2 = self.calAC2 * B6 / math.pow(2, 11)
-        X3 = X1 + X2
-        B3 = (((self.calAC1 * 4 + int(X3)) << self.mode) + 2) / 4
-        X1 = self.calAC3 * B6 / math.pow(2, 13)
-        X2 = (self.calB1 * (B6 * B6 / math.pow(2, 12))) / math.pow(2, 16)
-        X3 = ((X1 + X2) + 2) / math.pow(2, 2)
-        B4 = self.calAC4 * (X3 + 32768) / math.pow(2,15)
-        B7 = (UP - B3) * (50000 >> self.mode)
-
-        if B7 < 0x80000000:
-            pressure = (B7 * 2) / B4
+        p: int
+        if b7 < 0x80000000:
+            p = (b7 * 2) // b4
         else:
-            pressure = (B7 / B4) * 2
+            p = (b7 // b4) * 2
 
-        X1 = (pressure / math.pow(2, 8)) * (pressure / math.pow(2, 8))
-        X1 = (X1 * 3038) / math.pow(2, 16)
-        X2 = (-7357 * pressure) / math.pow(2, 16)
-        pressure = pressure + (X1 + X2 + 3791) / math.pow(2, 4)
+        x1 = (p // (2**8)) ** 2
+        x1 = (x1 * 3038) // (2**16)
+        x2 = (-7357 * p) // (2**16)
 
+        pressure = p + (x1 + x2 + 3791) // (2**4)
         return pressure
 
-    def get_altitude(self, sea_level_pressure = 101325):
-        """Calulates the altitude.
+    def get_altitude(self, sea_level_pressure: int = 101325) -> float:
+        """Calculates the altitude in meters from the pressure.
 
-        This method calculates the altitude using the pressure.
-        This method is not reliable when the sensor is inside.
-        sea_level_pressure -- the pressure at the sea level closest to you in
-        Pascal.
-        Returns the altitude in meters.
+        Args:
+            sea_level_pressure: The current sea-level atmospheric pressure in Pascals.
 
-        !!! This method probably does not work correctly. I've tried to test
-        it but at the moment I have no way of verifying the data. !!!
+        Returns:
+            The altitude in meters.
         """
-        altitude = 0.0
         pressure = float(self.get_pressure())
-
-        altitude = 44330.0 * (1.0 - math.pow(pressure / sea_level_pressure, 0.00019029495))
-
+        # Formula from BMP180 datasheet
+        altitude = 44330.0 * (1.0 - pow(pressure / sea_level_pressure, 1 / 5.255))
+        # HACK: annoyingly, an overload of `pow` can return Any, so we marshall the type here
+        # on the bright side, this is the only of these hacks needed to make mypy pass on strict!
+        assert isinstance(
+            altitude, float
+        ), "If this happened, you are in for an immense world of pain. Hi!"
         return altitude
 
+
 if __name__ == "__main__":
-    bmp = bmp180(0x77)
-    print(bmp.get_temp())
-    print(bmp.get_pressure())
-    print(bmp.get_altitude())
+    try:
+        # Initialize sensor on I2C bus 1 with default address 0x77
+        bmp = BMP180(bus_number=1)
+
+        temp = bmp.get_temperature()
+        pressure = bmp.get_pressure()
+        altitude = bmp.get_altitude()
+
+        print(f"Temperature: {temp:.2f} °C")
+        print(
+            f"Pressure: {pressure / 100.0:.2f} hPa"
+        )  # Convert Pa to hPa for readability
+        print(f"Altitude: {altitude:.2f} m")
+
+    except (IOError, FileNotFoundError) as e:
+        print("Error: I2C bus not found or BMP180 sensor not connected.")
+        print(f"Details: {e}")
